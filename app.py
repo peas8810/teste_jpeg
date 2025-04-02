@@ -24,11 +24,14 @@ def convert_docx_to_pdf():
 
     return send_file(output_path, as_attachment=True, download_name="convertido.pdf")
 
+
 @app.route("/convert-pdf-jpg", methods=["POST"])
 def convert_pdf_to_jpg():
     file = request.files.get("file")
-  if not file or not file.mimetype == "application/pdf":
-        return "Arquivo inválido para este endpoint.", 400
+    
+    # Removida a verificação do mimetype para evitar falhas por pequenas variações
+    if not file:
+        return "Nenhum arquivo enviado.", 400
 
     pdf_path = f"/tmp/{uuid.uuid4()}.pdf"
     file.save(pdf_path)
@@ -48,6 +51,7 @@ def convert_pdf_to_jpg():
 
     except Exception as e:
         return f"Erro ao converter PDF: {str(e)}", 500
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
