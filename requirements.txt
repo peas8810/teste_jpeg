@@ -1,8 +1,2 @@
-streamlit
+flask
 pdf2image
-pytesseract
-Pillow
-PyPDF2
-img2pdf
-pdf2docx
-
