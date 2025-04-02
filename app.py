@@ -1,85 +1,53 @@
-import streamlit as st
-import os
-import shutil
-import zipfile
-import re
-import tempfile
+from flask import Flask, request, send_file
 from pdf2image import convert_from_path
-from PIL import Image
-import requests
+import os
+import uuid
+import zipfile
 
-# Configurações
-st.set_page_config(page_title="Conversor de Documentos", layout="wide")
+app = Flask(__name__)
 
-WORK_DIR = tempfile.mkdtemp()
+@app.route("/convert", methods=["POST"])
+def convert_docx_to_pdf():
+    file = request.files.get("file")
+    if not file or not file.filename.endswith(".docx"):
+        return "Arquivo inválido para este endpoint.", 400
 
-def salvar_arquivo(uploaded_file):
-    filename = re.sub(r'[^\w\-_\. ]', '_', uploaded_file.name)
-    path = os.path.join(WORK_DIR, filename)
-    with open(path, "wb") as f:
-        f.write(uploaded_file.getbuffer())
-    return path, filename
+    filename = str(uuid.uuid4()) + ".docx"
+    input_path = f"/tmp/{filename}"
+    output_path = input_path.replace(".docx", ".pdf")
+    file.save(input_path)
 
-def criar_link_download(caminho, nome, label, mime="application/octet-stream"):
-    with open(caminho, "rb") as f:
-        st.download_button(label, data=f, file_name=nome, mime=mime)
+    os.system(f"libreoffice --headless --convert-to pdf --outdir /tmp {input_path}")
 
-# === WORD → PDF com API Railway ===
-RAILWAY_API_URL = "https://testepdf-production.up.railway.app/convert"
+    if not os.path.exists(output_path):
+        return "Erro na conversão.", 500
 
-def word_para_pdf():
-    st.header("📄 Word para PDF (via API Railway)")
-    arquivos = st.file_uploader("Selecione arquivos .docx", type=["docx"], accept_multiple_files=True)
-    if not arquivos:
-        return
-    if st.button("Converter para PDF"):
-        for arquivo in arquivos:
-            files = {"file": (arquivo.name, arquivo.getvalue(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")}
-            response = requests.post(RAILWAY_API_URL, files=files)
-            if response.status_code == 200:
-                nome_pdf = os.path.splitext(arquivo.name)[0] + ".pdf"
-                st.download_button(f"📥 Baixar {nome_pdf}", data=response.content, file_name=nome_pdf, mime="application/pdf")
-            else:
-                st.error(f"Erro ao converter {arquivo.name}")
+    return send_file(output_path, as_attachment=True, download_name="convertido.pdf")
 
-# === PDF → JPG ===
-def pdf_para_jpg():
-    st.header("🖼️ PDF para JPG")
-    arquivo = st.file_uploader("Selecione um PDF", type=["pdf"])
-    if not arquivo:
-        return
-    if not shutil.which("pdftoppm"):
-        st.error("❌ Poppler não está instalado. O PDF não pode ser convertido.")
-        return
-    if st.button("Converter para JPG"):
-        path, nome = salvar_arquivo(arquivo)
-        nome_base = os.path.splitext(nome)[0]
-        imagens = convert_from_path(path, dpi=300)
-        zip_path = os.path.join(WORK_DIR, f"{nome_base}_jpg.zip")
+@app.route("/convert-pdf-jpg", methods=["POST"])
+def convert_pdf_to_jpg():
+    file = request.files.get("file")
+    if not file or not file.filename.endswith(".pdf"):
+        return "Arquivo inválido para este endpoint.", 400
+
+    pdf_path = f"/tmp/{uuid.uuid4()}.pdf"
+    file.save(pdf_path)
+
+    try:
+        imagens = convert_from_path(pdf_path, dpi=300)
+        zip_path = pdf_path.replace(".pdf", ".zip")
+
         with zipfile.ZipFile(zip_path, 'w') as zipf:
             for i, img in enumerate(imagens):
-                img_nome = f"{nome_base}_pag{i+1}.jpg"
-                img_path = os.path.join(WORK_DIR, img_nome)
-                img.save(img_path, "JPEG", quality=90)
-                zipf.write(img_path, img_nome)
-        st.success(f"Convertido {len(imagens)} páginas!")
-        criar_link_download(zip_path, f"{nome_base}_jpg.zip", "📥 Baixar ZIP com imagens", mime="application/zip")
+                img_name = f"pagina_{i+1}.jpg"
+                img_path = f"/tmp/{img_name}"
+                img.save(img_path, "JPEG")
+                zipf.write(img_path, img_name)
 
-# === Interface Principal ===
-def main():
-    st.title("📄 Conversor de Documentos")
-    menu = st.sidebar.selectbox("Escolha a função", ["Word para PDF", "PDF para JPG"])
+        return send_file(zip_path, as_attachment=True, download_name="imagens_convertidas.zip")
 
-    if st.sidebar.button("🧹 Limpar arquivos temporários"):
-        shutil.rmtree(WORK_DIR)
-        os.makedirs(WORK_DIR, exist_ok=True)
-        st.sidebar.success("Arquivos limpos.")
-
-    if menu == "Word para PDF":
-        word_para_pdf()
-    elif menu == "PDF para JPG":
-        pdf_para_jpg()
+    except Exception as e:
+        return f"Erro ao converter PDF: {str(e)}", 500
 
 if __name__ == "__main__":
-    main()
-
+    app.run(host="0.0.0.0", port=8080)
