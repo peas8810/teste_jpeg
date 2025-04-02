@@ -27,7 +27,7 @@ def convert_docx_to_pdf():
 @app.route("/convert-pdf-jpg", methods=["POST"])
 def convert_pdf_to_jpg():
     file = request.files.get("file")
-    if not file or not file.filename.endswith(".pdf"):
+  if not file or not file.mimetype == "application/pdf":
         return "Arquivo inválido para este endpoint.", 400
 
     pdf_path = f"/tmp/{uuid.uuid4()}.pdf"
